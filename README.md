@@ -1,11 +1,32 @@
- ## TreeLUT
+# XGrid
 
-**This repository is a fork of the original [TreeLUT](https://github.com/kiabuzz/TreeLUT.git), with the following changes:**
-- Added a verilog parser to generate mux trees instead of equations.
-- Incorporated the argmax and quantization functions to the TreeLUT verilog main module.
-  
+**XGrid: Design Exploration Tool for FPGA XGBoost**
+
+XGrid is an open-source, end-to-end framework that converts XGBoost models into synthesizable Verilog and explores their hardware cost on FPGAs. It extends [TreeLUT](https://github.com/kiabuzz/TreeLUT.git) with an integrated input quantization module, an argmax module, and a multiplexer-based tree generator, so that the reported cost reflects a complete edge inference pipeline that starts from raw sensor data and ends with the final class.
+
+## Overview
+
+TreeLUT assumes that the input data is already normalized and quantized, and it leaves the argmax step to software. XGrid removes both assumptions and adds new design-exploration options.
+
+**Changes with respect to the original TreeLUT:**
+- **Input quantization module:** min-max quantization of raw inputs generated in Verilog, so the cost of the front-end is included in the results.
+- **Argmax module:** the final class selection is generated in Verilog.
+- **Multiplexer-based trees:** a new Verilog generator that maps each decision node to a multiplexer, avoiding the exponential number of clauses of equation-based trees.
+- **Enhanced equation-based trees:** long equations are decomposed into intermediate values to reduce the load on Verilog parsers, and the code uses combinational `assign` constructions instead of behavioral Verilog.
+- **Design exploration:** a grid search over the quantization widths, with and without the quantization and argmax modules.
+
+The generated Verilog has been synthesized with Yosys, and the results reported in the paper use a generic 6-input LUT target.
+
+## Tool Flow
+
+1. Train an XGBoost model in Python.
+2. Choose the feature width `w_feature` and the vote width `w_tree`, or a range of values to explore.
+3. Choose whether to include the input quantization and argmax modules.
+4. Choose the tree representation: equation-based or multiplexer-based.
+5. XGrid extracts the trees and generates the Verilog code.
+6. Synthesize the generated code with your FPGA toolchain.
+
 ## Installation
-Use the following commands to clone the repository and install the package.
 
 ```bash
 git clone https://github.com/Olavo-B/TreeLUT.git
@@ -14,48 +35,48 @@ python3 -m venv env
 source env/bin/activate
 pip install .
 ```
-    
+
 ## Getting Started
-We have provided an [example](./example) in Jupyter Notebook to demonstrate how to use TreeLUT. As seen in the example, you need to take the following steps to implement a GBDT model in hardware. At each step, there are a few hyperparameters that you need to tune to achieve your target accuracy and performance.
 
-__1. Data Quantization:__ As the first step, you must quantize the input features of your data into unsigned integers using *w_feature* bits, where *w_feature* is a hyperparameter. Some datasets are already quantized, such as MNIST in which the input features are 8-bit values. For other datasets, you might use a MinMax scaling and rounding function for the quantization.
+The [example](./example) Jupyter Notebook shows the full flow. At each step, a few hyperparameters can be tuned to reach the target accuracy and area.
 
-__2. XGBoost Model Training:__ At this step, you need to train your GBDT model on the quantized data. There exist various libraries for GBDTs such as XGBoost, CatBoost, LightGBM, etc. However, the current version of TreeLUT only supports XGBoost classifiers. Each of these libraries supports a wide range of hyperparameters for training.
+### 1. Data Quantization
 
-__3. TreeLUT Model Generation:__ After training the `XGBoostClassifier` module, you need to prepare it for hardware implementations. The `TreeLUTClassifier` class in our package facilitates the preparation and conversion of the model into hardware files. Below is an explanation of how to initialize the class and use its functions.
+Quantize the input features into unsigned integers of `w_feature` bits, a hyperparameter of the design. Some datasets are already quantized, such as MNIST with 8-bit inputs. For raw continuous data, use min-max quantization, which preserves feature variance and ordering and outperforms direct bit truncation at low bit depths. XGrid can also generate this step in hardware, so that the circuit accepts raw inputs.
 
-__3.1 Initialization__ 
+### 2. XGBoost Model Training
 
-The `TreeLUTClassifier` module needs the following parameters for initialization. 
+Train the model on the quantized data. The current version supports XGBoost classifiers.
 
-* *xgb_model*: The primary XGBoost model already trained in Step 2. 
-* *w_feature*: The bitwidth of the quantized data in Step 1. 
-* *w_tree*: A hyperparameter that specifies the quantization bitwidth of the leaves of the XGBoost model.
-* *pipeline* (optional): A hyperparameter that specifies the locations of pipeline stages in the hardware implementation. Please refer to Section 4.2 of the paper for more information.
-* *dir_path* (optional): The direction of the folder in which the hardware files are generated.
+### 3. Model Generation
 
-__3.2 Functions__ 
+The `TreeLUTClassifier` class prepares the trained model and generates the hardware files.
 
-* `convert()`: Quantizes the XGBoost model and converts it into the TreeLUT model. 
-* `predict(X_test)`: Generates predictions for the given data.
-* `verilog()`: Generates Verilog hardware files.
-* `testbench(X_test, y_test)`: Generates Verilog testbench files.
+**Initialization parameters:**
 
-## Citation
-TreeLUT has been developed as a part of the following publication.
+| Parameter | Description |
+|---|---|
+| `xgb_model` | The XGBoost model trained in Step 2. |
+| `w_feature` | Bitwidth of the quantized features. |
+| `w_tree` | Quantization bitwidth of the leaf values (votes). |
+| `pipeline` (optional) | Locations of the pipeline stages. See Section 4.2 of the TreeLUT paper. |
+| `dir_path` (optional) | Folder in which the hardware files are generated. |
 
-```bibtex
-@inproceedings{treelut_fpga,
-    author = {Khataei, Alireza and Bazargan, Kia},
-    title = {TreeLUT: An Efficient Alternative to Deep Neural Networks for Inference Acceleration Using Gradient Boosted Decision Trees},
-    year = {2025},
-    booktitle = {Proceedings of the 2025 ACM/SIGDA International Symposium on Field Programmable Gate Arrays},
-    numpages = {11},
-    location = {Monterey, CA, USA},
-    series = {FPGA '25}
-}
-```
+<!-- TODO: document the new options (tree representation, quantization module, argmax module, equation decomposition) with their exact names. -->
 
-> Alireza Khataei and Kia Bazargan. 2025. TreeLUT: An Efficient Alternative to Deep Neural Networks for Inference Acceleration Using Gradient Boosted Decision Trees. In Proceedings of the 2025 ACM/SIGDA International Symposium on Field Programmable Gate Arrays (FPGA ’25), February 27-March 1, 2025, Monterey, CA, USA. ACM, New York, NY, USA, 11 pages.
+**Functions:**
 
-</div>
+| Function | Description |
+|---|---|
+| `convert()` | Quantizes the XGBoost model and converts it into the TreeLUT model. |
+| `predict(X_test)` | Generates predictions for the given data. |
+| `verilog()` | Generates the Verilog hardware files. |
+| `testbench(X_test, y_test)` | Generates the Verilog testbench files. |
+
+## Design Space Exploration
+
+The paper explores `w_feature` and `w_tree` from 1 to 8, for two tree representations and four combinations of the optional modules, on three UCI datasets: Adult, Covertype and Dry Bean. All designs use 7 trees with a maximum depth of 7. The main findings are:
+
+- The multiplexer-based representation reduces LUT usage compared to the equation-based one on all datasets.
+- Including the quantization module increases the LUT count by about 59% to 80%, while the argmax module has a small cost.
+- The best allocation between `w_feature` and `w_tree` depends on the dataset and on the area budget, so both widths should be selected jointly.
